@@ -1,6 +1,6 @@
 import numpy as np
 import pickle
-from swe_hb_solver_lite import SWEHBSolver
+from solver import SWEHBSolver
 
 # Define parameters
 # Gomit et al. numerical
