@@ -1,5 +1,6 @@
-# swehb
-SWEHB stands for Shallow Water Equations Herschel-Bulkley, which models the free-surface flows of viscoplastic fluids described by the HB law over arbitrary bathymetries. This is a work in progress.
+# SWEHB
+
+SWEHB stands for _Shallow Water Equations Herschel-Bulkley_, which models the free-surface flows of viscoplastic fluids described by the HB rheology over arbitrary bathymetries. This is a work in progress.
 
 ---
 
@@ -8,7 +9,7 @@ SWEHB stands for Shallow Water Equations Herschel-Bulkley, which models the free
 Clone the repository
 ```bash
 git clone https://github.com/username/swehb.git
-cd project
+cd swehb
 ```
 
 Create a virtual environment (recommended)
