@@ -25,7 +25,7 @@ def build_bathymetry(xb, M, bath_type, center=0, a=1, contour_file=None):
 
     xb: cell-centered grid coordinates (solver.xb)
     M: characteristic obstacle scale (solver.M)
-    bath_type: one of 'dead_zones', 'rectangle', 'squared_trapezoid',
+    bath_type: one of 'dead_zones', 'rectangle', 'cavity', 'squared_trapezoid',
         'semi_circular', 'bump', 'ramp', 'flat'/'none', 'sinusoidal',
         'contour' (loads bathymetry from contour_file, a two-column x,z CSV),
         'custom' (uses custom_bathymetry() defined in this file)
@@ -63,6 +63,14 @@ def build_bathymetry(xb, M, bath_type, center=0, a=1, contour_file=None):
 
         mask_flat = (xb >= x_flat_left) & (xb <= x_flat_right)
         bathb[mask_flat] = height
+
+    elif bath_type == 'cavity':
+        x_flat_left = -M
+        x_flat_right = M
+        depth = M
+
+        mask_cavity = (xb >= x_flat_left) & (xb <= x_flat_right)
+        bathb[mask_cavity] = - depth
 
     elif bath_type == 'squared_trapezoid':
         x_left = -M*1.5

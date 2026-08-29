@@ -4,24 +4,23 @@ from solver import SWEHBSolver
 
 # Define parameters
 # Fluid rheology
-ty = 10
+ty = 1
 kn = 0.7
 m = 0.6
 rho = 1011
 
-h0 = 0.01535
+h0 = 0.015
 theta = np.radians(7)
-M = 0.025
+M = 0.005
 
 Nx = 1000
 CFL = 0.9
-xL = -M*30
+xL = -M*10
 xR = M*30
 tend = 1000
-filename = 'gomit_square'
+filename = 'filename'
 
-max_iter = 80001
-# max_iter = 100
+max_iter = 1e5
 
 # Store all results in a dictionary
 all_results = {}
@@ -31,13 +30,19 @@ probe_locs = None
 
 '''
 Here you call the solver. You can select the flow case by setting:
-surge = True or False, to enable or disable the surge scenario (dam-break with constant discharge)
-reservoir = True or False, to enable or disable the dam-break scenario (finite volume of fluid)
-rollwaves = True or False, to enable or disable roll wave boundary condition (requires frequency and amplitude adjustments in the source code)
+
+* surge = True or False, to enable or disable the surge scenario (dam-break with constant discharge)
+
+* reservoir = True or False, to enable or disable the dam-break scenario (finite volume of fluid). In this case, a physical wall is built at the end of the domain, on the opposite side of the initial fluid volume.
+
+* sludge = True or False, to enable or disable the sludge scenario (requires reservoir to be enabled). No wall limiting the fluid volume is built for this scenario.
+
+* rollwaves = True or False, to enable or disable roll wave boundary condition (requires frequency and amplitude adjustments in the source code)
 
 The code will always run a steady-state case, otherwise.
+
 '''
-solver = SWEHBSolver(params = {
+solver = SWEHBSolver(surge = True, params = {
     'h0': h0,
     'ty': ty,
     'kn': kn,
@@ -54,15 +59,14 @@ solver = SWEHBSolver(params = {
 
 
 # To change roll wave boundary conditions, uncomment the following section:
-
-solver.set_roll_wave(
+'''solver.set_roll_wave(
     amp=0.05,   # 2% velocity perturbation
     freq=1.5,   # oscillations per second
     u0=None,    # defaults to computed steady inlet velocity
-)
+)'''
 
 
-solver.set_bathymetry("bump")
+solver.set_bathymetry("flat")
 
 # Graphically check the bathymetry and initial conditions before running
 solver.check_case()

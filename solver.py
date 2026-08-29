@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 from bathymetry import build_bathymetry
 
 class SWEHBSolver:
-    def __init__(self, params, surge = False, reservoir = False, rollwaves = False):
+    def __init__(self, params, surge = False, reservoir = False, rollwaves = False, sludge = False, reservoir_length = 0.1):
         """
         Initialize the SWE HB Solver with the given parameters.
         params: dictionary containing:
@@ -16,13 +16,22 @@ class SWEHBSolver:
             Nx, CFL, tend (numerical parameters)
             xL, xR (domain limits)
         """
-        self._validate_params(params, surge, reservoir, rollwaves)
+        self._validate_params(params, surge, reservoir, rollwaves, reservoir_length)
 
-        self.surge = surge
+
+        # Cascade: sludge implies reservoir implies surge; roll disables both.
+        self.sludge = sludge
         self.reservoir = reservoir
+        self.surge = surge
         self.roll = rollwaves
+        self.rlength = reservoir_length
 
-        if self.roll == True: self.surge = self.reservoir = False
+        if self.sludge:
+            self.reservoir = True
+        if self.reservoir:
+            self.surge = True
+        if self.roll:
+            self.surge = self.reservoir = False
 
         self.g = 9.81
         self.h0 = params['h0']
@@ -90,7 +99,7 @@ class SWEHBSolver:
 
 
     @staticmethod
-    def _validate_params(params, surge, reservoir, roll):
+    def _validate_params(params, surge, reservoir, roll, reservoir_length):
         """Validates `params` and case flags, raising on invalid setups and warning on risky ones."""
         required_keys = ['h0', 'ty', 'kn', 'm', 'rho', 'theta', 'Nx', 'CFL', 'tend', 'M', 'xL', 'xR']
         missing = [k for k in required_keys if k not in params]
@@ -125,8 +134,10 @@ class SWEHBSolver:
         if params['M'] <= 0:
             warnings.warn("M (obstacle/normalization scale) should be positive")
 
-        if reservoir and not surge:
+        if reservoir and not surge and (reservoir_length == None or reservoir_length <= 0 or reservoir_length == 0):
             warnings.warn("reservoir=True has no effect unless surge=True (reservoir initial condition is only built in the surge case)")
+        if reservoir or surge and (reservoir_length == None or reservoir_length <= 0 or reservoir_length == 0):
+            warnings.warn("incorrect reservoir length")
         if roll and surge:
             warnings.warn("rollwaves and surge are typically mutually exclusive flow cases; combining them may produce unexpected results")
 
@@ -137,7 +148,7 @@ class SWEHBSolver:
         in self.bathb, along with the associated flat/slope region markers
         (x_left, x_right, x_flat_left, x_flat_right) used by the solver's boundary handling.
 
-        bath_type: one of 'dead_zones', 'rectangle', 'squared_trapezoid',
+        bath_type: one of 'dead_zones', 'rectangle', 'cavity', 'squared_trapezoid',
             'semi_circular', 'bump', 'ramp', 'flat'/'none', 'sinusoidal',
             'contour' (loads bathymetry from contour_file), 'custom' (edit
             custom_bathymetry() in bathymetry.py)
@@ -249,9 +260,13 @@ class SWEHBSolver:
             self.bathb = bathymetry.copy()
             
             if self.reservoir:
-                l = 0.50
+                l = self.rlength
                 h_g = self.h0
                 self.bathb[self.xb <= 0] = h_g
+
+                if self.sludge:
+                    self.bathb[self.xb <= 0] = 0
+
                 self.zetab = reservoirfunc(self, self.xb, h_g) + self.bathb
 
                 self.u0 = 0
@@ -291,7 +306,7 @@ class SWEHBSolver:
     def Froude(self, u, h):
         """Calculate local Froude number."""
         h_safe = np.maximum(h, 1e-12)
-        return u / (np.sqrt(self.g * np.cos(self.theta)) * (np.abs(h_safe) ** 0.5))
+        return np.abs(u) / (np.sqrt(self.g * np.cos(self.theta)) * (np.abs(h_safe) ** 0.5))
 
     def Bingham(self,u, h):
         """Calculate local Bingham/Herschel-Bulkley number."""
@@ -366,7 +381,7 @@ class SWEHBSolver:
         """Calculate basal shear stress."""
         h_safe = np.maximum(h, 1e-12)
         ss = u / h_safe
-        t = (self.ty + self.kn * self.mu(Xi) * ((np.abs(ss))**self.m))
+        t = (self.ty + self.kn * self.mu(Xi) * ((np.abs(ss))**self.m)) * np.sign(ss)
         return t
 
 
@@ -420,8 +435,8 @@ class SWEHBSolver:
         ssp = u[1:self.Nx+1]/Hxp
         ssm = u[0:self.Nx]/Hxm
 
-        taub_p = 1/self.rho*(self.ty + mup *((np.abs(ssp))**self.m))
-        taub_m = 1/self.rho*(self.ty + mum * ((np.abs(ssm))**self.m))
+        taub_p = 1/self.rho*(self.ty + mup *((np.abs(ssp))**self.m)) * np.sign(ssp)
+        taub_m = 1/self.rho*(self.ty + mum * ((np.abs(ssm))**self.m)) * np.sign(ssm)
         
         rhs = hb - \
             self.dt/self.dx * ( \
@@ -556,17 +571,23 @@ class SWEHBSolver:
         mu = self.kn*self.mu(Xip)
         ss_alt = u/h_itf
 
-        #taub = self.tau(Xip, u, hp)/self.rho
-        taub_itf = 1/self.rho*(self.ty + mu*((np.abs(ss_alt))**self.m))
+        # Bottom friction at the cell interface
+        friction_acceleration = (self.ty + mu * np.abs(ss_alt)**self.m) / (self.rho * h_itf)
 
-        u[1:self.Nx] = u[1:self.Nx] \
-            - self.g*self.dt/self.dx*np.cos(self.theta)*(zetab[1:self.Nx] - zetab[0:self.Nx-1]) \
-            + self.dt*self.g*np.sin(self.theta)\
-            - self.dt/h_itf[1:self.Nx]*taub_itf[1:self.Nx]
-        
+        driven_velocity = u.copy()
+        driven_velocity[1:self.Nx] += self.dt * (self.g * np.sin(self.theta)
+            - self.g * np.cos(self.theta) / self.dx * (zetab[1:self.Nx] - zetab[0:self.Nx-1])
+        )
+
+        # Apply basal resistance after the driving terms so dry friction cannot reverse the flow
+        u[1:self.Nx] = np.sign(driven_velocity[1:self.Nx]) * np.maximum(
+            np.abs(driven_velocity[1:self.Nx]) - self.dt * friction_acceleration[1:self.Nx],
+            0,
+        )
+
+        # Enforce boundary condition at the last cell and remove negligible velocities
         u[self.Nx] = u[self.Nx - 1]  
-        
-        u = np.where(u < 1e-9, 0, u)
+        u = np.where(np.abs(u) < 1e-9, 0, u)
         
 
         return u
@@ -873,11 +894,9 @@ class SWEHBSolver:
 
         if self.reservoir:
             for ax in axes:
-                ax.set_xlim(self.xL, 2.8)
-                if ax == ax_surf:
-                    ax.set_ylim(0, 0.1)
-        else:
-            pass
+                if ax is ax_err:
+                    continue  # ax_err's x-axis is time, not space
+                ax.set_xlim(self.xL / denom, self.xR / denom)
 
         # ----------------------------------------------------------
         # Update title BEFORE drawing
